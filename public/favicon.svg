@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Fondo circular -->
+  <circle cx="50" cy="50" r="48" fill="url(#grad)"/>
+  
+  <!-- Libro/Tesis -->
+  <rect x="30" y="25" width="40" height="50" fill="white" rx="2"/>
+  <rect x="32" y="27" width="36" height="46" fill="#f0f9ff" rx="1"/>
+  
+  <!-- Líneas de texto -->
+  <line x1="38" y1="35" x2="62" y2="35" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+  <line x1="38" y1="42" x2="62" y2="42" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+  <line x1="38" y1="49" x2="58" y2="49" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Birrete académico -->
+  <polygon points="50,55 40,60 60,60" fill="#1e40af"/>
+  <rect x="48" y="60" width="4" height="8" fill="#1e40af"/>
+  <circle cx="50" cy="69" r="2" fill="#fbbf24"/>
+  
+  <!-- Borde del círculo -->
+  <circle cx="50" cy="50" r="48" fill="none" stroke="white" stroke-width="2" opacity="0.3"/>
+</svg>
