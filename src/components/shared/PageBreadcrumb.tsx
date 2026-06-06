@@ -20,6 +20,9 @@ const routeLabels: Record<string, BreadcrumbConfig> = {
   'new': { label: 'Nueva Propuesta' },
   'list': { label: 'Lista' },
   'evaluations': { label: 'Evaluaciones' },
+  'evaluator': { label: 'Evaluador' },
+  'dashboard': { label: 'Dashboard' },
+  'profile': { label: 'Perfil' },
   'admin': { label: 'Administración' },
   'panel': { label: 'Panel' },
 };

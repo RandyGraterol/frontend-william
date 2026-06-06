@@ -9,7 +9,7 @@ interface StatCardProps {
     value: number;
     isPositive: boolean;
   };
-  variant?: 'default' | 'primary' | 'accent';
+  variant?: 'default' | 'primary' | 'destructive';
 }
 
 export function StatCard({ 
@@ -20,14 +20,14 @@ export function StatCard({
   variant = 'default' 
 }: StatCardProps) {
   return (
-    <div className="stat-card">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-3xl font-bold mt-1 text-foreground">{value}</p>
+    <div className="stat-card min-w-0 overflow-hidden">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs sm:text-sm text-muted-foreground truncate">{title}</p>
+          <p className="text-2xl sm:text-3xl font-bold mt-1 text-foreground truncate">{value}</p>
           {trend && (
             <p className={cn(
-              'text-sm mt-2',
+              'text-xs sm:text-sm mt-1 sm:mt-2',
               trend.isPositive ? 'text-green-600' : 'text-destructive'
             )}>
               {trend.isPositive ? '+' : '-'}{Math.abs(trend.value)}% vs mes anterior
@@ -35,13 +35,13 @@ export function StatCard({
           )}
         </div>
         <div className={cn(
-          'p-3 rounded-lg',
+          'p-2 sm:p-3 rounded-lg shrink-0',
           variant === 'primary' && 'gradient-primary',
-          variant === 'accent' && 'gradient-accent',
+          variant === 'destructive' && 'gradient-destructive',
           variant === 'default' && 'bg-muted'
         )}>
           <Icon className={cn(
-            'h-6 w-6',
+            'h-5 w-5 sm:h-6 sm:w-6',
             variant === 'default' ? 'text-muted-foreground' : 'text-white'
           )} />
         </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, Check, CheckCheck, Trash2, Filter, FileText, ClipboardCheck, RefreshCw, AlertTriangle, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +17,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useNotifications, NotificationType } from '@/contexts/NotificationContext';
+import { useNotifications } from '@/hooks/useNotifications';
+import { NotificationType } from '@/contexts/NotificationContext';
 
 const typeConfig: Record<NotificationType, { icon: React.ElementType; color: string; label: string }> = {
   proposal: { icon: FileText, color: 'bg-blue-500', label: 'Propuestas' },
@@ -41,6 +43,7 @@ function formatTimeAgo(date: Date): string {
 }
 
 export function NotificationCenter() {
+  const navigate = useNavigate();
   const {
     notifications,
     unreadCount,
@@ -264,7 +267,10 @@ export function NotificationCenter() {
               variant="ghost"
               size="sm"
               className="text-xs"
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                setIsOpen(false);
+                navigate('/notificaciones');
+              }}
             >
               Ver todas las notificaciones
             </Button>

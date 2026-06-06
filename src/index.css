@@ -2,48 +2,69 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 @layer base {
   :root {
     --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    --foreground: 215 25% 15%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 215 25% 15%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 215 25% 15%;
 
-    --primary: 224 76% 33%;
+    --primary: 213 80% 35%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 214 32% 91%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 210 15% 92%;
+    --secondary-foreground: 215 25% 25%;
 
-    --muted: 214 32% 96%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 210 15% 95%;
+    --muted-foreground: 215 15% 45%;
 
-    --accent: 0 84% 50%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 210 20% 90%;
+    --accent-foreground: 215 25% 20%;
 
-    --destructive: 0 84% 50%;
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 224 76% 33%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 213 80% 35%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 224 76% 33%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 0 0% 100%;
-    --sidebar-primary-foreground: 224 76% 33%;
-    --sidebar-accent: 224 76% 40%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 224 76% 40%;
-    --sidebar-ring: 0 0% 100%;
+    /* Custom institutional colors - UNERG theme */
+    --institutional-blue: 213 80% 35%;
+    --institutional-blue-light: 213 70% 50%;
+    --institutional-green: 152 60% 40%;
+    --institutional-amber: 38 92% 50%;
+    --institutional-gray: 215 15% 50%;
+
+    /* Metric card variants */
+    --metric-blue: 213 80% 35%;
+    --metric-blue-bg: 213 70% 95%;
+    --metric-green: 152 60% 40%;
+    --metric-green-bg: 152 50% 95%;
+    --metric-amber: 38 92% 50%;
+    --metric-amber-bg: 38 80% 95%;
+
+    /* Status colors */
+    --status-active: 213 80% 35%;
+    --status-active-bg: 213 70% 92%;
+    --status-complete: 152 60% 40%;
+    --status-complete-bg: 152 50% 92%;
+    --status-delayed: 0 72% 50%;
+    --status-delayed-bg: 0 70% 95%;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
 
     --header-height: 4rem;
     --sidebar-width: 16rem;
@@ -51,42 +72,62 @@
   }
 
   .dark {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 98%;
+    --background: 215 25% 10%;
+    --foreground: 210 20% 98%;
 
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 98%;
+    --card: 215 25% 12%;
+    --card-foreground: 210 20% 98%;
 
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 215 25% 12%;
+    --popover-foreground: 210 20% 98%;
 
-    --primary: 224 76% 48%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 213 70% 55%;
+    --primary-foreground: 215 25% 10%;
 
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 215 20% 20%;
+    --secondary-foreground: 210 20% 98%;
 
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 215 20% 18%;
+    --muted-foreground: 215 15% 60%;
 
-    --accent: 0 84% 50%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 215 20% 22%;
+    --accent-foreground: 210 20% 98%;
 
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 224 76% 48%;
+    --border: 215 20% 22%;
+    --input: 215 20% 22%;
+    --ring: 213 70% 55%;
 
-    --sidebar-background: 222 47% 8%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 224 76% 48%;
+    --institutional-blue: 213 70% 55%;
+    --institutional-blue-light: 213 60% 65%;
+    --institutional-green: 152 50% 50%;
+    --institutional-amber: 38 85% 55%;
+    --institutional-gray: 215 15% 60%;
+
+    --metric-blue: 213 70% 55%;
+    --metric-blue-bg: 213 60% 20%;
+    --metric-green: 152 50% 50%;
+    --metric-green-bg: 152 40% 18%;
+    --metric-amber: 38 85% 55%;
+    --metric-amber-bg: 38 70% 18%;
+
+    --status-active: 213 70% 55%;
+    --status-active-bg: 213 60% 20%;
+    --status-complete: 152 50% 50%;
+    --status-complete-bg: 152 40% 18%;
+    --status-delayed: 0 62% 55%;
+    --status-delayed-bg: 0 50% 20%;
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 17%;
-    --sidebar-ring: 212 27% 84%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
 
@@ -99,17 +140,16 @@
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', sans-serif;
   }
+
+  /* Smooth theme transitions */
+  *,
+  *::before,
+  *::after {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.1s ease;
+  }
 }
 
 @layer components {
-  .sidebar-item {
-    @apply flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground;
-  }
-
-  .sidebar-item-active {
-    @apply bg-sidebar-accent text-sidebar-foreground font-medium;
-  }
-
   .stat-card {
     @apply bg-card rounded-xl p-6 shadow-sm border border-border hover:shadow-md transition-shadow duration-200;
   }
@@ -125,10 +165,10 @@
 
 @layer utilities {
   .gradient-primary {
-    background: linear-gradient(135deg, hsl(224 76% 33%) 0%, hsl(224 76% 45%) 100%);
+    background: linear-gradient(135deg, hsl(213 80% 35%) 0%, hsl(213 70% 50%) 100%);
   }
 
-  .gradient-accent {
-    background: linear-gradient(135deg, hsl(0 84% 50%) 0%, hsl(0 84% 60%) 100%);
+  .gradient-destructive {
+    background: linear-gradient(135deg, hsl(0 72% 50%) 0%, hsl(0 72% 60%) 100%);
   }
 }

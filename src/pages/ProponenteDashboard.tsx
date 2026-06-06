@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import {
@@ -71,19 +71,20 @@ const STATUS_COLORS: Record<string, string> = {
   rechazada: '#ef4444',
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  borrador: 'Borrador',
+  enviada: 'Enviada',
+  en_evaluacion: 'En Evaluación',
+  aprobada: 'Aprobada',
+  rechazada: 'Rechazada',
+};
+
 const MODALITY_COLORS = ['#6366f1', '#06b6d4', '#f97316'];
 const TYPE_COLORS = ['#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'];
 
-export default function Dashboard() {
+export default function ProponenteDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  useEffect(() => {
-    if (user?.role === 'evaluador') {
-      navigate('/evaluator/dashboard', { replace: true });
-    }
-  }, [user, navigate]);
-
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState(false);
 
@@ -250,6 +251,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
         {[
           { title: 'Total', value: displayStats.total, icon: FileText, variant: 'primary' as const },
@@ -264,7 +266,9 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Charts Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+        {/* Donut - Estado */}
         <Card className="stat-card p-0 sm:col-span-1 animate-fade-in overflow-hidden" style={{ animationDelay: '200ms' }}>
           <CardHeader className="p-3 sm:p-4 pb-0">
             <CardTitle className="text-xs sm:text-sm font-semibold flex items-center gap-2">
@@ -306,6 +310,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* Bar - Tipo */}
         <Card className="stat-card p-0 sm:col-span-1 animate-fade-in overflow-hidden" style={{ animationDelay: '250ms' }}>
           <CardHeader className="p-3 sm:p-4 pb-0">
             <CardTitle className="text-xs sm:text-sm font-semibold flex items-center gap-2">
@@ -334,6 +339,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* Bar - Modalidad */}
         <Card className="stat-card p-0 sm:col-span-1 animate-fade-in overflow-hidden" style={{ animationDelay: '300ms' }}>
           <CardHeader className="p-3 sm:p-4 pb-0">
             <CardTitle className="text-xs sm:text-sm font-semibold flex items-center gap-2">
@@ -368,6 +374,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* Area - Tendencia Mensual */}
         <Card className="stat-card p-0 sm:col-span-1 animate-fade-in overflow-hidden" style={{ animationDelay: '350ms' }}>
           <CardHeader className="p-3 sm:p-4 pb-0">
             <CardTitle className="text-xs sm:text-sm font-semibold flex items-center gap-2">
@@ -408,7 +415,9 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Metrics + Recent Proposals */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
+        {/* Mini Metrics */}
         <div className="space-y-2 sm:space-y-3 animate-fade-in" style={{ animationDelay: '400ms' }}>
           <div className="stat-card flex items-center gap-2 sm:gap-3 p-3 sm:p-4">
             <div className="p-1.5 sm:p-2 rounded-lg bg-primary/10 shrink-0">
@@ -448,6 +457,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Recent Proposals */}
         <div className="stat-card p-3 sm:p-4 lg:p-6 lg:col-span-2 animate-fade-in min-w-0 overflow-hidden" style={{ animationDelay: '450ms' }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm sm:text-base font-semibold text-foreground truncate">Propuestas Recientes</h3>
@@ -509,10 +519,10 @@ export default function Dashboard() {
                       </TooltipTrigger>
                       <TooltipContent>Seguimiento</TooltipContent>
                     </Tooltip>
-                    {proposal.status === 'borrador' && (
+                    {(proposal.status === 'borrador' || proposal.status === 'en_evaluacion') && (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/proposals/${proposal.id}/edit`)}>
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>

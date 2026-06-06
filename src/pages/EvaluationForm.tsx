@@ -1,8 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
-  Save, 
   Send, 
   XCircle,
   FileText,
@@ -13,11 +12,11 @@ import {
   AlertCircle,
   Star,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Trash2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -29,6 +28,7 @@ import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { LoadingSkeleton } from '@/components/shared';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,19 +43,44 @@ import {
 import { useToast } from '@/hooks/use-toast';
 
 import { 
-  proposals, 
-  evaluations, 
-  currentUser, 
-  getUserById 
-} from '@/data/mockData';
-import { 
   proposalStatusLabels, 
   proposalTypeLabels,
   Evaluation
 } from '@/types/proposal';
+import { api } from '@/lib/api';
+import { translateApiError } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
-// Evaluation criteria with weights
-const evaluationCriteria = [
+// ============ HELPERS ============
+
+const getInitials = (name: string): string =>
+  name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || '??';
+
+const parseObjectives = (objectives: unknown): string[] => {
+  if (!objectives) return [];
+  if (Array.isArray(objectives)) return objectives as string[];
+  if (typeof objectives === 'string') {
+    try {
+      const parsed = JSON.parse(objectives);
+      return Array.isArray(parsed) ? parsed : [objectives];
+    } catch {
+      return [objectives];
+    }
+  }
+  return [];
+};
+
+const mapApiProposal = (data: Record<string, any>): Record<string, any> => ({
+  ...data,
+  submitter: data.proposer || data.submitter || { id: '', name: 'Usuario', email: '' },
+  objectives: parseObjectives(data.objectives),
+  createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+  updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+  submittedAt: data.submittedAt ? new Date(data.submittedAt) : undefined,
+});
+
+// Fallback evaluation criteria (used when API fails)
+const fallbackCriteria = [
   { 
     id: 'pertinencia', 
     name: 'Pertinencia', 
@@ -88,21 +113,6 @@ const evaluationCriteria = [
   },
 ];
 
-// Validation schema
-const evaluationSchema = z.object({
-  scores: z.record(z.number().min(1).max(5)),
-  comments: z.record(z.string().max(500)),
-  generalObservations: z.string().max(2000),
-  recommendation: z.enum(['aprobar', 'rechazar', 'revision']).optional(),
-});
-
-interface CriterionScore {
-  score: number;
-  comment: string;
-}
-
-type ScoresState = Record<string, CriterionScore>;
-
 const getScoreLabel = (score: number): string => {
   const labels: Record<number, string> = {
     1: 'Deficiente',
@@ -120,33 +130,148 @@ const getScoreColor = (score: number): string => {
   return 'text-red-600';
 };
 
+interface CriterionScore {
+  score: number;
+  comment: string;
+}
+
+type ScoresState = Record<string, CriterionScore>;
+
 export default function EvaluationForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  
-  const proposal = proposals.find(p => p.id === id);
-  const previousEvaluations = evaluations.filter(e => e.proposalId === id && e.evaluatorId !== currentUser.id);
-  
+  const { user } = useAuth();
+
+  // ============ State ============
+
+  const [proposalData, setProposalData] = useState<Record<string, any> | null>(null);
+  const [evaluationCriteria, setEvaluationCriteria] = useState(fallbackCriteria);
+  const [criterionIdMap, setCriterionIdMap] = useState<Record<string, string>>({});
+  const [previousEvaluations, setPreviousEvaluations] = useState<Record<string, any>[]>([]);
+  const [existingEvaluation, setExistingEvaluation] = useState<Record<string, any> | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [scores, setScores] = useState<ScoresState>(() => {
     const initial: ScoresState = {};
-    evaluationCriteria.forEach(c => {
+    (fallbackCriteria).forEach(c => {
       initial[c.id] = { score: 0, comment: '' };
     });
     return initial;
   });
-  
+
   const [generalObservations, setGeneralObservations] = useState('');
   const [recommendation, setRecommendation] = useState<string>('');
   const [isProposalOpen, setIsProposalOpen] = useState(true);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Calculate total score
+  // ============ Data Fetching ============
+
+  useEffect(() => {
+    if (!id || !user) return;
+
+    const fetchData = async () => {
+      setIsLoading(true);
+
+      // Fetch proposal
+      try {
+        const propResponse = await api.getProposal(id);
+        if (propResponse.success && propResponse.data) {
+          setProposalData(mapApiProposal(propResponse.data as Record<string, any>));
+        } else {
+          throw new Error('Respuesta inválida');
+        }
+      } catch {
+        // API call failed — proposalData remains null, "not found" state shown
+      }
+
+      // Fetch evaluation criteria
+      let localCriteria = fallbackCriteria;
+      let localCriterionIdMap: Record<string, string> = {};
+      try {
+        const critResponse = await api.getEvaluationCriteria();
+        if (critResponse.success && critResponse.data && Array.isArray(critResponse.data)) {
+          const apiCriteria = critResponse.data as Record<string, any>[];
+          const mapped = apiCriteria.map((c, i) => ({
+            id: `criterion-${i}`,
+            name: c.name,
+            weight: c.weight,
+            description: c.description || '',
+            apiId: c.id,
+          }));
+          const criteriaWithApiId = mapped.map(c => ({ ...c, apiId: (apiCriteria.find(ac => ac.name === c.name) as Record<string, any>)?.id }));
+          setEvaluationCriteria(criteriaWithApiId);
+          localCriteria = criteriaWithApiId;
+
+          apiCriteria.forEach((c: Record<string, any>) => {
+            localCriterionIdMap[c.name] = c.id;
+          });
+          setCriterionIdMap(localCriterionIdMap);
+
+          const initial: ScoresState = {};
+          mapped.forEach(c => {
+            initial[c.id] = { score: 0, comment: '' };
+          });
+          setScores(initial);
+        }
+      } catch {
+        // Keep fallback criteria
+      }
+
+      // Fetch evaluations for this proposal (for history + check existing)
+      try {
+        const evalResponse = await api.getEvaluations({ proposalId: id });
+        if (evalResponse.success && evalResponse.data) {
+          const allEvals = evalResponse.data as Record<string, any>[];
+
+          // Check if current user already has an evaluation (for editing)
+          const myEval = allEvals.find(
+            (e: Record<string, any>) => e.evaluatorId === user.id
+          );
+          if (myEval) {
+            setExistingEvaluation(myEval);
+            // Pre-populate form with existing data
+            const initial: ScoresState = {};
+            localCriteria.forEach(c => {
+              const matchedScore = (myEval.scores || []).find(
+                (s: Record<string, any>) => {
+                  const apiId = localCriterionIdMap[c.name];
+                  return s.criterionId === apiId || s.criterion?.name === c.name;
+                }
+              );
+              initial[c.id] = {
+                score: matchedScore ? (matchedScore.score / (matchedScore.maxScore || 5)) * 5 : 0,
+                comment: matchedScore?.comments || '',
+              };
+            });
+            setScores(initial);
+            setGeneralObservations(myEval.generalComments || myEval.comments || '');
+            setRecommendation(myEval.recommendation || '');
+          }
+
+          // Previous evaluations by other evaluators
+          const othersEvals = allEvals.filter(
+            (e: Record<string, any>) => e.evaluatorId !== user.id && e.status === 'completada'
+          );
+          setPreviousEvaluations(othersEvals);
+        }
+      } catch {
+        // API call failed — no previous evaluations available
+      }
+
+      setIsLoading(false);
+    };
+
+    fetchData();
+  }, [id, user]);
+
+  // ============ Computed values ============
+
   const totalScore = useMemo(() => {
     let weightedSum = 0;
     let totalWeight = 0;
-    
+
     evaluationCriteria.forEach(criterion => {
       const score = scores[criterion.id]?.score || 0;
       if (score > 0) {
@@ -154,28 +279,17 @@ export default function EvaluationForm() {
         totalWeight += criterion.weight;
       }
     });
-    
+
     return totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
-  }, [scores]);
+  }, [scores, evaluationCriteria]);
 
   const completedCriteria = useMemo(() => {
     return evaluationCriteria.filter(c => scores[c.id]?.score > 0).length;
-  }, [scores]);
+  }, [scores, evaluationCriteria]);
 
-  const isFormComplete = completedCriteria === evaluationCriteria.length && recommendation;
+  const isFormComplete = completedCriteria === evaluationCriteria.length && !!recommendation;
 
-  if (!proposal) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
-        <FileText className="h-16 w-16 text-muted-foreground" />
-        <h2 className="text-xl font-semibold">Propuesta no encontrada</h2>
-        <Button onClick={() => navigate('/evaluations')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver a Evaluaciones
-        </Button>
-      </div>
-    );
-  }
+  // ============ Handlers ============
 
   const handleScoreChange = (criterionId: string, score: number) => {
     setScores(prev => ({
@@ -185,7 +299,6 @@ export default function EvaluationForm() {
   };
 
   const handleCommentChange = (criterionId: string, comment: string) => {
-    // Limit to 500 characters
     if (comment.length <= 500) {
       setScores(prev => ({
         ...prev,
@@ -194,15 +307,54 @@ export default function EvaluationForm() {
     }
   };
 
+  const buildApiScores = () => {
+    return evaluationCriteria
+      .filter(c => scores[c.id]?.score > 0)
+      .map(c => {
+        // Use stored apiId if available, else fallback to criterionIdMap lookup or name
+        const apiId = (c as any).apiId || criterionIdMap[c.name];
+        return {
+          criterionId: apiId || c.name,
+          score: scores[c.id].score,
+          comments: scores[c.id].comment || '',
+        };
+      });
+  };
+
   const handleSaveDraft = async () => {
+    if (!user || !id) return;
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const evaluationData = {
+      proposalId: id,
+      evaluatorId: user.id,
+      status: 'en_progreso',
+      generalComments: generalObservations,
+      scores: buildApiScores(),
+    };
+
+    try {
+      if (existingEvaluation) {
+        await api.updateEvaluation(existingEvaluation.id, evaluationData);
+      } else {
+        await api.createEvaluation(evaluationData);
+      }
+      toast({
+        title: "Borrador guardado",
+        description: "Tu evaluación ha sido guardada como borrador.",
+      });
+    } catch (err) {
+      const message = translateApiError(err);
+      toast({
+        title: "Error al guardar",
+        description: message,
+        variant: "destructive",
+      });
+      setIsSaving(false);
+      return;
+    }
+
     setIsSaving(false);
-    toast({
-      title: "Borrador guardado",
-      description: "Tu evaluación ha sido guardada como borrador.",
-    });
   };
 
   const handleSubmit = async () => {
@@ -215,35 +367,116 @@ export default function EvaluationForm() {
       return;
     }
 
+    if (!user || !id) return;
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    const evaluationData = {
+      proposalId: id,
+      evaluatorId: user.id,
+      status: 'completada',
+      generalComments: generalObservations,
+      recommendation,
+      scores: buildApiScores(),
+    };
+
+    try {
+      if (existingEvaluation) {
+        await api.updateEvaluation(existingEvaluation.id, evaluationData);
+      } else {
+        await api.createEvaluation(evaluationData);
+      }
+      toast({
+        title: "Evaluación enviada",
+        description: "Tu evaluación ha sido enviada exitosamente.",
+      });
+      navigate(`/proposals/${id}`);
+    } catch (err) {
+      const message = translateApiError(err);
+      toast({
+        title: "Error al enviar",
+        description: message,
+        variant: "destructive",
+      });
+    }
+
     setIsSaving(false);
-    
-    toast({
-      title: "Evaluación enviada",
-      description: "Tu evaluación ha sido enviada exitosamente.",
-    });
-    navigate(`/proposals/${id}`);
   };
 
   const handleReject = async () => {
+    if (!user || !id) return;
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    try {
+      if (existingEvaluation) {
+        await api.updateEvaluation(existingEvaluation.id, {
+          status: 'rechazada',
+          generalComments: 'Evaluador rechazó participar',
+        });
+      }
+      toast({
+        title: "Evaluación rechazada",
+        description: "Has rechazado participar en esta evaluación.",
+      });
+    } catch (err) {
+      const message = translateApiError(err);
+      toast({
+        title: "Error al rechazar",
+        description: message,
+        variant: "destructive",
+      });
+    }
+
     setIsSaving(false);
-    
-    toast({
-      title: "Propuesta rechazada",
-      description: "Has rechazado participar en esta evaluación.",
-    });
     navigate('/evaluations');
   };
 
-  const getTotalScoreForEvaluation = (evaluation: Evaluation) => {
-    const total = evaluation.scores.reduce((sum, s) => sum + s.score, 0);
-    const max = evaluation.scores.reduce((sum, s) => sum + s.maxScore, 0);
+  const getTotalScoreForEvaluation = (evaluation: Record<string, any>) => {
+    const scoresArr = evaluation.scores || [];
+    const total = scoresArr.reduce((sum: number, s: any) => sum + (s.score || 0), 0);
+    const max = scoresArr.reduce((sum: number, s: any) => sum + (s.maxScore || 1), 0);
     return max > 0 ? (total / max) * 100 : 0;
   };
+
+  // ============ Loading State ============
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-10 bg-muted rounded animate-pulse" />
+          <div className="space-y-2 flex-1">
+            <div className="h-8 w-64 bg-muted rounded animate-pulse" />
+            <div className="h-5 w-48 bg-muted rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <LoadingSkeleton variant="card" count={2} />
+          </div>
+          <div className="space-y-6">
+            <LoadingSkeleton variant="card" count={3} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ Not Found State ============
+
+  if (!proposalData) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+        <FileText className="h-16 w-16 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Propuesta no encontrada</h2>
+        <Button onClick={() => navigate('/evaluations')}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Volver a Evaluaciones
+        </Button>
+      </div>
+    );
+  }
+
+  const proposal = proposalData;
 
   return (
     <div className="space-y-6">
@@ -463,84 +696,6 @@ export default function EvaluationForm() {
               </div>
             </CardContent>
           </Card>
-
-          {/* Previous Evaluations History */}
-          {previousEvaluations.length > 0 && (
-            <Collapsible open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
-              <Card>
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2">
-                        <Clock className="h-5 w-5" />
-                        Evaluaciones Previas ({previousEvaluations.length})
-                      </CardTitle>
-                      {isHistoryOpen ? (
-                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                      )}
-                    </div>
-                  </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <CardContent className="space-y-4">
-                    {previousEvaluations.map((evaluation) => {
-                      const evaluator = getUserById(evaluation.evaluatorId);
-                      const scorePercentage = getTotalScoreForEvaluation(evaluation);
-                      
-                      return (
-                        <div 
-                          key={evaluation.id}
-                          className="p-4 rounded-lg border bg-muted/30"
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              <Avatar className="h-8 w-8">
-                                <AvatarFallback className="text-xs bg-secondary">
-                                  {evaluator?.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium text-sm">{evaluator?.name}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {format(evaluation.updatedAt, "d 'de' MMMM, yyyy", { locale: es })}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <span className={`font-bold ${scorePercentage >= 70 ? 'text-green-600' : scorePercentage >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                {scorePercentage.toFixed(0)}%
-                              </span>
-                              {evaluation.recommendation && (
-                                <Badge 
-                                  className={`ml-2 ${
-                                    evaluation.recommendation === 'aprobar' 
-                                      ? 'bg-green-100 text-green-800' 
-                                      : evaluation.recommendation === 'rechazar'
-                                      ? 'bg-red-100 text-red-800'
-                                      : 'bg-yellow-100 text-yellow-800'
-                                  }`}
-                                >
-                                  {evaluation.recommendation === 'aprobar' ? 'Aprobar' :
-                                   evaluation.recommendation === 'rechazar' ? 'Rechazar' : 'Revisión'}
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          {evaluation.comments && (
-                            <p className="text-sm text-muted-foreground">
-                              "{evaluation.comments}"
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          )}
         </div>
 
         {/* Right Column - Proposal Preview & Actions */}
@@ -568,9 +723,11 @@ export default function EvaluationForm() {
                   <div>
                     <h3 className="font-semibold text-lg leading-tight">{proposal.title}</h3>
                     <div className="flex items-center gap-2 mt-2">
-                      <Badge variant="outline">{proposalTypeLabels[proposal.type]}</Badge>
-                      <Badge className="bg-blue-100 text-blue-800">
-                        {proposalStatusLabels[proposal.status]}
+                      <Badge variant="outline">
+                        {proposalTypeLabels[proposal.type as keyof typeof proposalTypeLabels] || proposal.type}
+                      </Badge>
+                      <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                        {proposalStatusLabels[proposal.status as keyof typeof proposalStatusLabels] || proposal.status}
                       </Badge>
                     </div>
                   </div>
@@ -585,11 +742,6 @@ export default function EvaluationForm() {
                       <span className="text-muted-foreground">Duración:</span>
                       <span className="font-medium">{proposal.duration || 'N/A'}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Público:</span>
-                      <span className="font-medium text-xs">{proposal.targetAudience || 'N/A'}</span>
-                    </div>
                   </div>
                   
                   {proposal.objectives && proposal.objectives.length > 0 && (
@@ -601,7 +753,7 @@ export default function EvaluationForm() {
                           Objetivos
                         </p>
                         <ul className="space-y-1">
-                          {proposal.objectives.slice(0, 3).map((obj, index) => (
+                          {proposal.objectives.slice(0, 3).map((obj: string, index: number) => (
                             <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
                               <CheckCircle2 className="h-3 w-3 shrink-0 mt-1 text-primary" />
                               <span className="line-clamp-2">{obj}</span>
@@ -636,12 +788,12 @@ export default function EvaluationForm() {
               <div className="flex items-center gap-3">
                 <Avatar>
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    {proposal.submitter.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    {getInitials(proposal.submitter?.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">{proposal.submitter.name}</p>
-                  <p className="text-sm text-muted-foreground">{proposal.submitter.department}</p>
+                  <p className="font-medium">{proposal.submitter?.name || 'No disponible'}</p>
+                  <p className="text-sm text-muted-foreground">{proposal.submitter?.department || ''}</p>
                 </div>
               </div>
             </CardContent>
@@ -692,42 +844,6 @@ export default function EvaluationForm() {
                 <Send className="mr-2 h-4 w-4" />
                 {isSaving ? 'Enviando...' : 'Enviar Evaluación'}
               </Button>
-              
-              <Button 
-                variant="outline" 
-                className="w-full"
-                onClick={handleSaveDraft}
-                disabled={isSaving}
-              >
-                <Save className="mr-2 h-4 w-4" />
-                Guardar Borrador
-              </Button>
-              
-              <Separator />
-              
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="ghost" className="w-full text-destructive hover:text-destructive">
-                    <XCircle className="mr-2 h-4 w-4" />
-                    Rechazar Evaluación
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Rechazar esta evaluación?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Esta acción indicará que no puedes o no deseas evaluar esta propuesta. 
-                      Se notificará al administrador para asignar otro evaluador.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleReject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                      Confirmar Rechazo
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
               
               {!isFormComplete && (
                 <p className="text-xs text-muted-foreground text-center">

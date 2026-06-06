@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   FileText, 
@@ -11,10 +12,15 @@ import {
   AlertCircle,
   ArrowLeft,
   Download,
-  Eye,
   Edit,
   Send,
-  RotateCcw
+  RotateCcw,
+  Activity,
+  Award,
+  ClipboardList,
+  DollarSign,
+  Lightbulb,
+  UserCheck
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -26,27 +32,36 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { LoadingSkeleton } from '@/components/shared';
+import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
-import { 
-  proposals, 
-  evaluations, 
-  currentUser, 
-  getUserById 
-} from '@/data/mockData';
 import { 
   proposalStatusLabels, 
   proposalTypeLabels,
-  WorkflowStep,
   Evaluation
 } from '@/types/proposal';
+import { api } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { cn } from '@/lib/utils';
 
-// Mock documents
-const mockDocuments = [
-  { id: 'doc-1', name: 'Propuesta_Completa.pdf', size: '2.4 MB', uploadedAt: new Date('2024-01-10') },
-  { id: 'doc-2', name: 'Presupuesto_Detallado.pdf', size: '456 KB', uploadedAt: new Date('2024-01-10') },
-  { id: 'doc-3', name: 'Cronograma_Actividades.pdf', size: '189 KB', uploadedAt: new Date('2024-01-11') },
-  { id: 'doc-4', name: 'Curriculum_Docente.pdf', size: '1.1 MB', uploadedAt: new Date('2024-01-12') },
-];
+// ============ HELPER FUNCTIONS ============
 
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
@@ -72,19 +87,207 @@ const getWorkflowStatusIcon = (status: string) => {
   }
 };
 
+const parseObjectives = (objectives: unknown): string[] => {
+  if (!objectives) return [];
+  if (Array.isArray(objectives)) return objectives as string[];
+  if (typeof objectives === 'string') {
+    try {
+      const parsed = JSON.parse(objectives);
+      return Array.isArray(parsed) ? parsed : [objectives];
+    } catch {
+      return [objectives];
+    }
+  }
+  return [];
+};
+
+const getInitials = (name: string): string =>
+  name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// ============ API DATA TRANSFORMATION ============
+
+const mapApiProposalDetail = (data: Record<string, any>): Record<string, any> => {
+  // Parse objectives (could be JSON string, array, or null)
+  const objectives = parseObjectives(data.objectives);
+
+  // Map evaluators: API returns ProposalEvaluator[] with nested user
+  const evaluators = (data.evaluators || []).map((ev: Record<string, any>) => {
+    const user = ev.user || {};
+    return {
+      id: user.id || ev.userId,
+      name: user.name || 'Evaluador',
+      email: user.email || '',
+      department: user.department || null,
+      role: user.role || 'evaluador',
+    };
+  });
+
+  // Map evaluations
+  const evaluations = (data.evaluations || []).map((ev: Record<string, any>) => ({
+    ...ev,
+    comments: ev.generalComments || ev.comments || '',
+    scores: (ev.scores || []).map((s: Record<string, any>) => ({
+      criterion: s.criterion?.name || s.criterion || '',
+      maxScore: s.maxScore,
+      score: s.score,
+      comments: s.comments,
+    })),
+    createdAt: ev.createdAt ? new Date(ev.createdAt) : new Date(),
+    updatedAt: ev.updatedAt ? new Date(ev.updatedAt) : new Date(),
+  }));
+
+  // Map workflow history
+  const workflowHistory = (data.workflowHistory || []).map((w: Record<string, any>) => ({
+    ...w,
+    date: w.date ? new Date(w.date) : new Date(),
+  }));
+
+  // Map documents
+  const documents = (data.documents || []).map((d: Record<string, any>) => ({
+    id: d.id,
+    name: d.name,
+    size: formatFileSize(d.fileSize || 0),
+    filePath: d.filePath,
+    fileType: d.fileType,
+    uploadedAt: d.uploadedAt ? new Date(d.uploadedAt) : new Date(),
+  }));
+
+  return {
+    ...data,
+    submitter: data.proposer || data.submitter || { id: '', name: 'Usuario', email: '' },
+    objectives,
+    evaluators,
+    evaluations,
+    workflowHistory,
+    documents,
+    createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+    updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+    submittedAt: data.submittedAt ? new Date(data.submittedAt) : undefined,
+  };
+};
+
+
+
+// ============ COMPONENT ============
+
 export default function ProposalDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
-  const proposal = proposals.find(p => p.id === id);
-  const proposalEvaluations = evaluations.filter(e => e.proposalId === id);
-  
-  if (!proposal) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  const [proposalData, setProposalData] = useState<Record<string, any> | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState(false);
+  const [statusAction, setStatusAction] = useState<string | null>(null);
+  const [isStatusLoading, setIsStatusLoading] = useState(false);
+  const [selectedEvaluator, setSelectedEvaluator] = useState<Record<string, any> | null>(null);
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchProposal = async () => {
+      setIsLoading(true);
+      try {
+        const response = await api.getProposal(id);
+        if (response.success && response.data) {
+          setProposalData(mapApiProposalDetail(response.data as Record<string, any>));
+          setApiError(false);
+        } else {
+          throw new Error('Respuesta inválida del servidor');
+        }
+      } catch {
+        setApiError(true);
+      }
+      setIsLoading(false);
+    };
+
+    fetchProposal();
+  }, [id]);
+
+  // Send proposal for review (proponente action)
+  const handleSendForReview = async () => {
+    if (!id || !user?.id) return;
+    setIsStatusLoading(true);
+    try {
+      await api.updateProposalStatus(id, {
+        status: 'enviada',
+        userId: user.id,
+        comments: 'Propuesta enviada para revisión',
+        role: user.role,
+      });
+      setProposalData(prev => prev ? { ...prev, status: 'enviada' } : prev);
+      toast({
+        title: 'Propuesta enviada',
+        description: 'La propuesta ha sido enviada para revisión.',
+      });
+    } catch {
+      toast({
+        title: 'Error al enviar',
+        description: 'No se pudo enviar la propuesta. Intente nuevamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsStatusLoading(false);
+    }
+  };
+
+  const handleStatusChange = async () => {
+    if (!id || !statusAction) return;
+    setIsStatusLoading(true);
+    try {
+      await api.updateProposalStatus(id, { status: statusAction });
+      setProposalData(prev => prev ? { ...prev, status: statusAction } : prev);
+      const labels: Record<string, string> = { aprobada: 'aprobada', rechazada: 'rechazada', enviada: 'devuelta para corrección' };
+      toast({ title: 'Estado actualizado', description: `La propuesta ha sido ${labels[statusAction] || statusAction}.` });
+      setStatusAction(null);
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo actualizar el estado.', variant: 'destructive' });
+    } finally {
+      setIsStatusLoading(false);
+    }
+  };
+
+  // ============ LOADING STATE ============
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-10 bg-muted rounded animate-pulse" />
+          <div className="space-y-2 flex-1">
+            <div className="h-8 w-96 bg-muted rounded animate-pulse" />
+            <div className="h-5 w-64 bg-muted rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <LoadingSkeleton variant="card" count={3} />
+          </div>
+          <div className="space-y-6">
+            <LoadingSkeleton variant="card" count={3} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ NOT FOUND / ERROR STATE ============
+
+  if (!proposalData) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
         <FileText className="h-16 w-16 text-muted-foreground" />
         <h2 className="text-xl font-semibold">Propuesta no encontrada</h2>
-        <Button onClick={() => navigate('/proposals')}>
+        <p className="text-muted-foreground text-sm">
+          {apiError ? 'Error al cargar la propuesta. Intente nuevamente.' : 'La propuesta que buscas no existe.'}
+        </p>
+        <Button onClick={() => navigate('/proposals/list')}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Volver a Propuestas
         </Button>
@@ -92,35 +295,76 @@ export default function ProposalDetail() {
     );
   }
 
-  const canEdit = currentUser.role === 'proponente' && proposal.status === 'borrador';
-  const canEvaluate = currentUser.role === 'evaluador' && proposal.status === 'en_evaluacion';
-  const canApprove = currentUser.role === 'administrador' && 
+  const proposal = proposalData;
+  const proposalEvaluations = proposal.evaluations || [];
+  const proposalDocuments = proposal.documents || [];
+
+  const canEdit = user?.role === 'proponente' && (proposal.status === 'borrador' || proposal.status === 'en_evaluacion');
+  const canEvaluate = user?.role === 'evaluador' && proposal.status === 'en_evaluacion';
+  const hasExistingEvaluations = proposalEvaluations.length > 0;
+  const canApprove = user?.role === 'administrador' && 
     (proposal.status === 'en_evaluacion' || proposal.status === 'enviada');
 
+  // ============ DOCUMENT HANDLERS ============
+
+  const handleDownloadDocument = (doc: Record<string, any>) => {
+    const fileUrl = doc.filePath || doc.url;
+    if (!fileUrl) {
+      toast({
+        title: 'Documento no disponible',
+        description: 'Este documento no tiene una ruta asociada.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = fileUrl;
+    link.download = doc.name || 'documento';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast({
+      title: 'Descargando...',
+      description: `"${doc.name}" se está descargando.`,
+    });
+  };
+
+  const handleExportPDF = () => {
+    toast({
+      title: 'Generando PDF',
+      description: 'Preparando la vista de impresión...',
+    });
+    // Use browser's print functionality which allows "Save as PDF"
+    setTimeout(() => window.print(), 300);
+  };
+
   const getTotalScore = (evaluation: Evaluation) => {
-    const total = evaluation.scores.reduce((sum, s) => sum + s.score, 0);
-    const max = evaluation.scores.reduce((sum, s) => sum + s.maxScore, 0);
+    const scores = evaluation.scores || [];
+    const total = scores.reduce((sum: number, s: any) => sum + (s.score || 0), 0);
+    const max = scores.reduce((sum: number, s: any) => sum + (s.maxScore || 5), 0);
     return { total, max, percentage: max > 0 ? (total / max) * 100 : 0 };
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex items-start gap-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex items-start gap-3 sm:gap-4">
           <Button 
             variant="ghost" 
             size="icon"
             onClick={() => navigate(-1)}
-            className="shrink-0 mt-1"
+            className="shrink-0 mt-0.5"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="page-title">{proposal.title}</h1>
-              <Badge className={getStatusColor(proposal.status)}>
-                {proposalStatusLabels[proposal.status]}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <h1 className="page-title text-lg sm:text-xl lg:text-2xl break-words">{proposal.title}</h1>
+              <Badge className={getStatusColor(proposal.status) + ' shrink-0 text-xs whitespace-nowrap'}>
+                {proposalStatusLabels[proposal.status as keyof typeof proposalStatusLabels]}
               </Badge>
             </div>
             <p className="page-subtitle mt-2">{proposal.description}</p>
@@ -129,19 +373,22 @@ export default function ProposalDetail() {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left Column - Tabs */}
-        <div className="lg:col-span-2">
+        <div className="md:col-span-2">
           <Tabs defaultValue="informacion" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="informacion">Información</TabsTrigger>
-              <TabsTrigger value="documentos">Documentos</TabsTrigger>
-              <TabsTrigger value="evaluaciones">Evaluaciones</TabsTrigger>
-              <TabsTrigger value="historial">Historial</TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto -mx-1 px-1">
+              <TabsList className="w-full min-w-0">
+                <TabsTrigger value="informacion" className="flex-1 text-xs sm:text-sm px-2 sm:px-4">Información</TabsTrigger>
+                <TabsTrigger value="documentos" className="flex-1 text-xs sm:text-sm px-2 sm:px-4">Documentos</TabsTrigger>
+                <TabsTrigger value="evaluaciones" className="flex-1 text-xs sm:text-sm px-2 sm:px-4">Evaluaciones</TabsTrigger>
+                <TabsTrigger value="historial" className="flex-1 text-xs sm:text-sm px-2 sm:px-4">Historial</TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* Tab: Información */}
             <TabsContent value="informacion" className="space-y-4">
+              {/* Datos Generales */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -153,16 +400,21 @@ export default function ProposalDetail() {
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Tipo</label>
-                      <p className="mt-1 font-medium">{proposalTypeLabels[proposal.type]}</p>
+                      <p className="mt-1 font-medium">
+                        {proposalTypeLabels[proposal.type as keyof typeof proposalTypeLabels] || proposal.type}
+                      </p>
                     </div>
+                    {proposal.modality && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground">Modalidad</label>
+                        <p className="mt-1 font-medium">{proposal.modality}</p>
+                      </div>
+                    )}
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Duración</label>
                       <p className="mt-1 font-medium">{proposal.duration || 'No especificada'}</p>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Público Objetivo</label>
-                      <p className="mt-1 font-medium">{proposal.targetAudience || 'No especificado'}</p>
-                    </div>
+
                   </div>
                   <div className="space-y-4">
                     <div>
@@ -189,6 +441,54 @@ export default function ProposalDetail() {
                 </CardContent>
               </Card>
 
+              {/* Descripción */}
+              {proposal.description && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Descripción
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-foreground whitespace-pre-wrap">{proposal.description}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Presentación y Justificación */}
+              {(proposal.presentation || proposal.justification) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {proposal.presentation && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Lightbulb className="h-5 w-5" />
+                          Presentación
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-foreground whitespace-pre-wrap">{proposal.presentation}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {proposal.justification && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <BookOpen className="h-5 w-5" />
+                          Justificación
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-foreground whitespace-pre-wrap">{proposal.justification}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* Objetivos */}
               {proposal.objectives && proposal.objectives.length > 0 && (
                 <Card>
                   <CardHeader>
@@ -199,7 +499,7 @@ export default function ProposalDetail() {
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-2">
-                      {proposal.objectives.map((obj, index) => (
+                      {proposal.objectives.map((obj: string, index: number) => (
                         <li key={index} className="flex items-start gap-3">
                           <CheckCircle2 className="h-5 w-5 text-primary shrink-0 mt-0.5" />
                           <span>{obj}</span>
@@ -210,16 +510,190 @@ export default function ProposalDetail() {
                 </Card>
               )}
 
-              {proposal.methodology && (
+              {/* Competencias */}
+              {proposal.competencias && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Award className="h-5 w-5" />
+                      Competencias
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-foreground whitespace-pre-wrap">{proposal.competencias}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Programa */}
+              {proposal.programa && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <BookOpen className="h-5 w-5" />
+                      Programa
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-foreground whitespace-pre-wrap">{proposal.programa}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Metodología */}
+              {proposal.methodology && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
                       Metodología
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-foreground">{proposal.methodology}</p>
+                    <p className="text-foreground whitespace-pre-wrap">{proposal.methodology}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Perfiles */}
+              {(proposal.entryProfile || proposal.graduationProfile) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {proposal.entryProfile && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <UserCheck className="h-5 w-5" />
+                          Perfil de Ingreso
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-foreground whitespace-pre-wrap">{proposal.entryProfile}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {proposal.graduationProfile && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Award className="h-5 w-5" />
+                          Perfil de Egreso
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-foreground whitespace-pre-wrap">{proposal.graduationProfile}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* Ejes Transversales */}
+              {proposal.transversalAxes && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Ejes Transversales
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-foreground whitespace-pre-wrap">{proposal.transversalAxes}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Requisitos */}
+              {(proposal.requirements || proposal.exitRequirements || proposal.credentialToAward) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ClipboardList className="h-5 w-5" />
+                      Requisitos
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {proposal.requirements && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground">Requisitos de Ingreso</label>
+                        <p className="mt-1 text-foreground whitespace-pre-wrap">{proposal.requirements}</p>
+                      </div>
+                    )}
+                    {proposal.exitRequirements && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground">Requisitos de Egreso</label>
+                        <p className="mt-1 text-foreground whitespace-pre-wrap">{proposal.exitRequirements}</p>
+                      </div>
+                    )}
+                    {proposal.credentialToAward && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground">Credencial a Otorgar</label>
+                        <p className="mt-1 font-medium">{proposal.credentialToAward}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Cupos y Presupuesto */}
+              {(proposal.minQuota != null || proposal.maxQuota != null || proposal.budget != null) && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {proposal.minQuota != null && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <Users className="h-4 w-4" />
+                          Cupo Mínimo
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-bold">{proposal.minQuota}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {proposal.maxQuota != null && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <Users className="h-4 w-4" />
+                          Cupo Máximo
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-bold">{proposal.maxQuota}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {proposal.budget != null && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <DollarSign className="h-4 w-4" />
+                          Presupuesto
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-bold">
+                          {typeof proposal.budget === 'number' 
+                            ? `$${proposal.budget.toLocaleString('es-CL')}` 
+                            : `$${proposal.budget}`}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* Facilitadores */}
+              {proposal.facilitadores && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Facilitadores
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-foreground whitespace-pre-wrap">{proposal.facilitadores}</p>
                   </CardContent>
                 </Card>
               )}
@@ -235,54 +709,44 @@ export default function ProposalDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {mockDocuments.map((doc) => (
-                    <div 
-                      key={doc.id}
-                      className="flex items-center justify-between p-4 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <FileText className="h-5 w-5 text-primary" />
+                  {proposalDocuments.length > 0 ? (
+                    proposalDocuments.map((doc: Record<string, any>) => (
+                      <div 
+                        key={doc.id}
+                        className="flex items-center justify-between p-4 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <FileText className="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{doc.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {doc.size} • {format(doc.uploadedAt, "d MMM yyyy", { locale: es })}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{doc.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {doc.size} • {format(doc.uploadedAt, "d MMM yyyy", { locale: es })}
-                          </p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownloadDocument(doc)}
+                            title="Descargar documento"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                      <FileText className="h-12 w-12 mb-4" />
+                      <p>No hay documentos adjuntos</p>
                     </div>
-                  ))}
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Mock PDF Viewer */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Vista Previa del Documento</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="aspect-[3/4] bg-muted rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-border">
-                    <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground font-medium">Propuesta_Completa.pdf</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Seleccione un documento para previsualizarlo
-                    </p>
-                    <Button variant="outline" className="mt-4">
-                      <Eye className="mr-2 h-4 w-4" />
-                      Abrir en Nueva Pestaña
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
             </TabsContent>
 
             {/* Tab: Evaluaciones */}
@@ -295,9 +759,9 @@ export default function ProposalDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                proposalEvaluations.map((evaluation) => {
-                  const evaluator = getUserById(evaluation.evaluatorId);
-                  const scoreInfo = getTotalScore(evaluation);
+                proposalEvaluations.map((evaluation: Record<string, any>) => {
+                  const evaluator = evaluation.evaluator || null;
+                  const scoreInfo = getTotalScore(evaluation as Evaluation);
                   
                   return (
                     <Card key={evaluation.id}>
@@ -306,12 +770,21 @@ export default function ProposalDetail() {
                           <div className="flex items-center gap-3">
                             <Avatar>
                               <AvatarFallback className="bg-primary text-primary-foreground">
-                                {evaluator?.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                {evaluator ? getInitials(evaluator.name || 'Evaluador') : 'EV'}
                               </AvatarFallback>
                             </Avatar>
                             <div>
-                              <CardTitle className="text-base">{evaluator?.name}</CardTitle>
-                              <p className="text-sm text-muted-foreground">{evaluator?.department}</p>
+                              <CardTitle className="text-base">
+                                <button
+                                  onClick={() => setSelectedEvaluator({ ...evaluator, evaluation })}
+                                  className="hover:text-primary transition-colors text-left font-semibold"
+                                >
+                                  {evaluator?.name || 'Evaluador'}
+                                </button>
+                              </CardTitle>
+                              {evaluator?.department && (
+                                <p className="text-sm text-muted-foreground">{evaluator.department}</p>
+                              )}
                             </div>
                           </div>
                           <Badge variant={evaluation.status === 'completada' ? 'default' : 'secondary'}>
@@ -322,34 +795,67 @@ export default function ProposalDetail() {
                       </CardHeader>
                       <CardContent className="space-y-4">
                         {/* Score Summary */}
-                        <div className="p-4 rounded-lg bg-muted/50">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium">Puntuación Total</span>
-                            <span className="text-lg font-bold text-primary">
-                              {scoreInfo.total} / {scoreInfo.max}
-                            </span>
-                          </div>
-                          <Progress value={scoreInfo.percentage} className="h-2" />
-                        </div>
-
-                        {/* Individual Scores */}
-                        <div className="space-y-3">
-                          {evaluation.scores.map((score, index) => (
-                            <div key={index} className="space-y-1">
-                              <div className="flex justify-between text-sm">
-                                <span>{score.criterion}</span>
-                                <span className="font-medium">{score.score} / {score.maxScore}</span>
+                        {evaluation.scores && evaluation.scores.length > 0 && (
+                          <>
+                            <div className="p-4 rounded-lg bg-muted/50">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium">Puntuación Total</span>
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    'text-sm font-medium',
+                                    scoreInfo.percentage >= 70 ? 'text-emerald-600' :
+                                    scoreInfo.percentage >= 40 ? 'text-amber-600' : 'text-red-600'
+                                  )}>
+                                    {Math.round(scoreInfo.percentage)}%
+                                  </span>
+                                  <span className="text-lg font-bold text-primary">
+                                    {scoreInfo.total} / {scoreInfo.max}
+                                  </span>
+                                </div>
                               </div>
                               <Progress 
-                                value={(score.score / score.maxScore) * 100} 
-                                className="h-1.5"
+                                value={scoreInfo.percentage} 
+                                className={cn(
+                                  'h-2',
+                                  scoreInfo.percentage >= 70 ? '[&>div]:bg-emerald-500' :
+                                  scoreInfo.percentage >= 40 ? '[&>div]:bg-amber-500' : '[&>div]:bg-red-500'
+                                )} 
                               />
-                              {score.comments && (
-                                <p className="text-xs text-muted-foreground mt-1">{score.comments}</p>
-                              )}
                             </div>
-                          ))}
-                        </div>
+
+                            {/* Individual Scores */}
+                            <div className="space-y-2">
+                              {evaluation.scores.map((score: Record<string, any>, index: number) => {
+                                const pct = (score.score / (score.maxScore || 5)) * 100;
+                                return (
+                                  <div key={index} className="p-3 rounded-lg border border-border/50 bg-muted/20">
+                                    <div className="flex items-center justify-between text-sm mb-1.5">
+                                      <span className="font-medium">{score.criterion}</span>
+                                      <span className={cn(
+                                        'font-medium',
+                                        pct >= 70 ? 'text-emerald-600' :
+                                        pct >= 40 ? 'text-amber-600' : 'text-red-600'
+                                      )}>
+                                        {score.score} / {score.maxScore || 5}
+                                      </span>
+                                    </div>
+                                    <Progress 
+                                      value={pct} 
+                                      className={cn(
+                                        'h-1.5',
+                                        pct >= 70 ? '[&>div]:bg-emerald-500' :
+                                        pct >= 40 ? '[&>div]:bg-amber-500' : '[&>div]:bg-red-500'
+                                      )}
+                                    />
+                                    {score.comments && (
+                                      <p className="text-xs text-muted-foreground mt-1.5 italic">{score.comments}</p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
 
                         {/* General Comments */}
                         {evaluation.comments && (
@@ -369,14 +875,14 @@ export default function ProposalDetail() {
                             <Badge 
                               className={
                                 evaluation.recommendation === 'aprobar' 
-                                  ? 'bg-green-100 text-green-800' 
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' 
                                   : evaluation.recommendation === 'rechazar'
-                                  ? 'bg-red-100 text-red-800'
-                                  : 'bg-yellow-100 text-yellow-800'
+                                  ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'
+                                  : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300'
                               }
                             >
                               {evaluation.recommendation === 'aprobar' ? 'Aprobar' :
-                               evaluation.recommendation === 'rechazar' ? 'Rechazar' : 'Revisión'}
+                               evaluation.recommendation === 'rechazar' ? 'Rechazar' : 'Requiere cambios'}
                             </Badge>
                           </div>
                         )}
@@ -397,7 +903,7 @@ export default function ProposalDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {proposal.workflowHistory.length === 0 ? (
+                  {!proposal.workflowHistory || proposal.workflowHistory.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8">
                       <Clock className="h-12 w-12 text-muted-foreground mb-4" />
                       <p className="text-muted-foreground">No hay historial disponible</p>
@@ -408,8 +914,8 @@ export default function ProposalDetail() {
                       <div className="absolute left-[18px] top-0 bottom-0 w-0.5 bg-border" />
                       
                       <div className="space-y-6">
-                        {proposal.workflowHistory.map((step: WorkflowStep, index: number) => {
-                          const user = step.userId ? getUserById(step.userId) : null;
+                        {proposal.workflowHistory.map((step: Record<string, any>, index: number) => {
+                          const stepUser = step.user || null;
                           
                           return (
                             <div key={index} className="relative flex gap-4 pl-10">
@@ -426,14 +932,14 @@ export default function ProposalDetail() {
                                   </time>
                                 </div>
                                 
-                                {user && (
+                                {stepUser && (
                                   <div className="flex items-center gap-2 mt-2">
                                     <Avatar className="h-6 w-6">
                                       <AvatarFallback className="text-xs bg-secondary">
-                                        {user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                        {getInitials(stepUser.name || 'Usuario')}
                                       </AvatarFallback>
                                     </Avatar>
-                                    <span className="text-sm text-muted-foreground">{user.name}</span>
+                                    <span className="text-sm text-muted-foreground">{stepUser.name}</span>
                                   </div>
                                 )}
                                 
@@ -469,20 +975,20 @@ export default function ProposalDetail() {
               <div className="flex items-center gap-3">
                 <Avatar className="h-12 w-12">
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    {proposal.submitter.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    {getInitials(proposal.submitter?.name || 'Proponente')}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">{proposal.submitter.name}</p>
-                  <p className="text-sm text-muted-foreground">{proposal.submitter.department}</p>
-                  <p className="text-sm text-muted-foreground">{proposal.submitter.email}</p>
+                  <p className="font-medium">{proposal.submitter?.name || 'No disponible'}</p>
+                  <p className="text-sm text-muted-foreground">{proposal.submitter?.department || ''}</p>
+                  <p className="text-sm text-muted-foreground">{proposal.submitter?.email || ''}</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
           {/* Evaluators */}
-          {proposal.evaluators.length > 0 && (
+          {proposal.evaluators && proposal.evaluators.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -491,16 +997,23 @@ export default function ProposalDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {proposal.evaluators.map((evaluator) => (
+                {proposal.evaluators.map((evaluator: Record<string, any>) => (
                   <div key={evaluator.id} className="flex items-center gap-3">
                     <Avatar className="h-10 w-10">
                       <AvatarFallback className="bg-secondary text-secondary-foreground">
-                        {evaluator.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                        {getInitials(evaluator.name || 'Evaluador')}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <p className="font-medium text-sm">{evaluator.name}</p>
-                      <p className="text-xs text-muted-foreground">{evaluator.department}</p>
+                      <button
+                        onClick={() => setSelectedEvaluator(evaluator)}
+                        className="font-medium text-sm hover:text-primary transition-colors text-left"
+                      >
+                        {evaluator.name}
+                      </button>
+                      {evaluator.department && (
+                        <p className="text-xs text-muted-foreground">{evaluator.department}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -519,7 +1032,9 @@ export default function ProposalDetail() {
             <CardContent className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Tipo</span>
-                <Badge variant="outline">{proposalTypeLabels[proposal.type]}</Badge>
+                <Badge variant="outline">
+                  {proposalTypeLabels[proposal.type as keyof typeof proposalTypeLabels] || proposal.type}
+                </Badge>
               </div>
               <Separator />
               <div className="flex justify-between">
@@ -534,7 +1049,7 @@ export default function ProposalDetail() {
               <Separator />
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pasos del Workflow</span>
-                <span className="font-medium">{proposal.workflowHistory.length}</span>
+                <span className="font-medium">{(proposal.workflowHistory?.length || 0) + proposalEvaluations.filter((e: Record<string, any>) => e.status !== 'pendiente').length}</span>
               </div>
             </CardContent>
           </Card>
@@ -546,19 +1061,13 @@ export default function ProposalDetail() {
             </CardHeader>
             <CardContent className="space-y-3">
               {/* Proponente Actions */}
-              {currentUser.role === 'proponente' && (
+              {user?.role === 'proponente' && (
                 <>
                   {canEdit ? (
-                    <>
-                      <Button className="w-full" onClick={() => navigate(`/proposals/edit/${proposal.id}`)}>
-                        <Edit className="mr-2 h-4 w-4" />
-                        Editar Propuesta
-                      </Button>
-                      <Button variant="outline" className="w-full">
-                        <Send className="mr-2 h-4 w-4" />
-                        Enviar para Revisión
-                      </Button>
-                    </>
+                    <Button className="w-full" onClick={() => navigate(`/proposals/${proposal.id}/edit`)}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Editar Propuesta
+                    </Button>
                   ) : (
                     <p className="text-sm text-muted-foreground text-center py-2">
                       Esta propuesta está en modo solo lectura
@@ -569,33 +1078,60 @@ export default function ProposalDetail() {
 
               {/* Evaluador Actions */}
               {canEvaluate && (
-                <Button className="w-full">
+                <Button className="w-full" onClick={() => navigate(`/evaluations/${id}`)}>
                   <FileText className="mr-2 h-4 w-4" />
-                  Evaluar Propuesta
+                  {hasExistingEvaluations ? 'Re Evaluar Propuesta' : 'Evaluar Propuesta'}
                 </Button>
               )}
 
               {/* Administrador Actions */}
               {canApprove && (
                 <>
-                  <Button className="w-full bg-green-600 hover:bg-green-700">
+                  <Button className="w-full bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-500" onClick={() => setStatusAction('aprobada')}>
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                     Aprobar
                   </Button>
-                  <Button variant="destructive" className="w-full">
+                  <Button variant="destructive" className="w-full" onClick={() => setStatusAction('rechazada')}>
                     <XCircle className="mr-2 h-4 w-4" />
                     Rechazar
                   </Button>
-                  <Button variant="outline" className="w-full">
+                  <Button variant="outline" className="w-full" onClick={() => setStatusAction('enviada')}>
                     <RotateCcw className="mr-2 h-4 w-4" />
                     Devolver para Corrección
                   </Button>
                 </>
               )}
 
+              {/* Confirmación de cambio de estado */}
+              <AlertDialog open={!!statusAction} onOpenChange={(open) => { if (!open) setStatusAction(null); }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {statusAction === 'aprobada' ? 'Aprobar Propuesta' :
+                       statusAction === 'rechazada' ? 'Rechazar Propuesta' : 'Devolver Propuesta'}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {statusAction === 'aprobada' ? '¿Estás seguro de aprobar esta propuesta? Esta acción no se puede deshacer.' :
+                       statusAction === 'rechazada' ? '¿Estás seguro de rechazar esta propuesta? El proponente recibirá una notificación.' :
+                       '¿Estás seguro de devolver esta propuesta para corrección? El proponente podrá editarla y reenviarla.'}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleStatusChange} disabled={isStatusLoading}>
+                      {isStatusLoading ? 'Procesando...' : 'Confirmar'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
               {/* Common Actions */}
+              <Button variant="outline" className="w-full" onClick={() => navigate(`/proposals/${id}/tracking`)}>
+                <Activity className="mr-2 h-4 w-4" />
+                Ver Seguimiento
+              </Button>
               <Separator />
-              <Button variant="ghost" className="w-full">
+              <Button variant="ghost" className="w-full" onClick={handleExportPDF}>
                 <Download className="mr-2 h-4 w-4" />
                 Exportar PDF
               </Button>
@@ -603,6 +1139,63 @@ export default function ProposalDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Evaluator Profile Dialog */}
+      <Dialog open={!!selectedEvaluator} onOpenChange={(open) => { if (!open) setSelectedEvaluator(null); }}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <Avatar className="h-10 w-10">
+                <AvatarFallback className="bg-primary text-primary-foreground">
+                  {getInitials(selectedEvaluator?.name || 'Evaluador')}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <span>{selectedEvaluator?.name || 'Evaluador'}</span>
+                {selectedEvaluator?.department && (
+                  <p className="text-sm font-normal text-muted-foreground">{selectedEvaluator.department}</p>
+                )}
+              </div>
+            </DialogTitle>
+            <DialogDescription>
+              Información personal del evaluador
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-2 gap-3 p-4 rounded-lg bg-muted/30">
+            <div>
+              <p className="text-xs text-muted-foreground">Nombre</p>
+              <p className="text-sm font-medium">{selectedEvaluator?.name || 'No registrado'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Correo</p>
+              <p className="text-sm font-medium">{selectedEvaluator?.email || 'No registrado'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Cédula / DNI</p>
+              <p className="text-sm font-medium">{selectedEvaluator?.dni || 'No registrado'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Teléfono</p>
+              <p className="text-sm font-medium">{selectedEvaluator?.phone || 'No registrado'}</p>
+            </div>
+            {selectedEvaluator?.department && (
+              <div>
+                <p className="text-xs text-muted-foreground">Departamento</p>
+                <p className="text-sm font-medium">{selectedEvaluator.department}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs text-muted-foreground">Ubicación / Dirección</p>
+              <p className="text-sm font-medium">{selectedEvaluator?.location || 'No registrado'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Especialidad</p>
+              <p className="text-sm font-medium">{selectedEvaluator?.specialty || 'No registrado'}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

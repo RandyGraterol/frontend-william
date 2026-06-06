@@ -8,18 +8,22 @@ export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+    <div className="flex min-h-screen bg-background overflow-x-hidden">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       
-      <main className="pt-16 lg:pl-64 min-h-screen">
-        <div className="p-4 sm:p-6">
-          <PageBreadcrumb />
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </div>
-      </main>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col w-full min-w-0 max-w-full">
+        <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+        
+        <main className="flex-1 w-full max-w-full">
+          <div className="w-full px-4 py-6 sm:px-6">
+            <PageBreadcrumb />
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
