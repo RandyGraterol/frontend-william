@@ -35,7 +35,7 @@ export default function Register() {
     specialty: '',
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingDepts, setLoadingDepts] = useState(true);
@@ -59,57 +59,54 @@ export default function Register() {
   }, []);
 
   const handleChange = (field: string, value: string) => {
+    setErrors(prev => ({ ...prev, [field]: '' }));
     if (field === 'dni') {
-      setFormData(prev => ({ ...prev, dni: value.replace(/[^0-9]/g, '') }));
+      setFormData(prev => ({ ...prev, dni: value.replace(/[^0-9]/g, '').slice(0, 15) }));
     } else if (field === 'phone') {
-      setFormData(prev => ({ ...prev, phone: value.replace(/[^0-9+\- ]/g, '') }));
+      setFormData(prev => ({ ...prev, phone: value.replace(/[^0-9+\- ]/g, '').slice(0, 15) }));
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
     }
   };
 
+  const validate = (): Record<string, string> => {
+    const errs: Record<string, string> = {};
+    if (!formData.name.trim()) errs.name = 'El nombre es obligatorio';
+    else if (formData.name.trim().length < 3) errs.name = 'Mínimo 3 caracteres';
+    if (!formData.email.trim()) errs.email = 'El email es obligatorio';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errs.email = 'Formato de email inválido';
+    if (!formData.department) errs.department = 'Selecciona un departamento';
+    if (!formData.dni.trim()) errs.dni = 'La cédula es obligatoria';
+    else if (!/^\d{5,15}$/.test(formData.dni)) errs.dni = 'Solo números (ej: 12345678)';
+    if (!formData.phone.trim()) errs.phone = 'El teléfono es obligatorio';
+    else if (!/^[\d\- +]{7,15}$/.test(formData.phone)) errs.phone = 'Solo números y guiones (ej: 0412-1234567)';
+    if (!formData.location.trim()) errs.location = 'La ubicación es obligatoria';
+    if (!formData.specialty.trim()) errs.specialty = 'La especialidad es obligatoria';
+    if (!formData.password) errs.password = 'La contraseña es obligatoria';
+    else if (formData.password.length < 6) errs.password = 'Mínimo 6 caracteres';
+    if (!formData.confirmPassword) errs.confirmPassword = 'Confirma tu contraseña';
+    else if (formData.password !== formData.confirmPassword) errs.confirmPassword = 'Las contraseñas no coinciden';
+    return errs;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-
-    const { name, email, password, confirmPassword, dni, phone, location, specialty, department } = formData;
-
-    const fieldErrors: string[] = [];
-    if (!name.trim()) fieldErrors.push('nombre');
-    if (!email.trim()) fieldErrors.push('correo');
-    if (!password) fieldErrors.push('contraseña');
-    if (!dni.trim()) fieldErrors.push('cédula');
-    if (!phone.trim()) fieldErrors.push('teléfono');
-    if (!location.trim()) fieldErrors.push('ubicación');
-    if (!specialty.trim()) fieldErrors.push('especialidad');
-    if (!department) fieldErrors.push('departamento');
-    if (fieldErrors.length > 0) {
-      setError(`Campos obligatorios: ${fieldErrors.join(', ')}`);
-      return;
-    }
-
-    if (password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Las contraseñas no coinciden');
-      return;
-    }
+    const validationErrors = validate();
+    setErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
 
     setIsSubmitting(true);
     try {
       const result = await register({
-        name,
-        email,
-        password,
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
         role: formData.role,
-        department,
-        dni,
-        phone,
-        location,
-        specialty,
+        department: formData.department || undefined,
+        dni: formData.dni || undefined,
+        phone: formData.phone || undefined,
+        location: formData.location || undefined,
+        specialty: formData.specialty || undefined,
       });
       const role = result?.role;
       if (role === 'evaluador') {
@@ -118,15 +115,17 @@ export default function Register() {
         navigate('/', { replace: true });
       }
     } catch (err) {
-      setError(translateApiError(err));
+      setErrors({ form: translateApiError(err) });
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const Err = ({ field }: { field: string }) =>
+    errors[field] ? <p className="text-xs text-destructive mt-1">{errors[field]}</p> : null;
+
   return (
     <div className="min-h-screen flex">
-      {/* Left Panel - Branding & Info */}
       <div className="hidden lg:flex lg:w-[45%] relative overflow-hidden bg-gradient-to-br from-primary via-primary/90 to-primary/70 p-12 flex-col gap-12">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-white blur-3xl" />
@@ -158,7 +157,6 @@ export default function Register() {
 
       </div>
 
-      {/* Right Panel - Form */}
       <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-6">
         <div className="w-full max-w-sm animate-in fade-in slide-in-from-right-8 duration-700 delay-150 fill-mode-backwards">
           <div className="mb-8">
@@ -167,15 +165,15 @@ export default function Register() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
-            {error && (
+            {errors.form && (
               <Alert variant="destructive" className="py-2.5 text-sm">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>{errors.form}</AlertDescription>
               </Alert>
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-sm font-medium">Nombre Completo</Label>
+              <Label htmlFor="name" className="text-sm font-medium">Nombre Completo <span className="text-destructive">*</span></Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -185,13 +183,14 @@ export default function Register() {
                   value={formData.name}
                   onChange={(e) => handleChange('name', e.target.value)}
                   disabled={isSubmitting}
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.name ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="name" />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm font-medium">Correo Electrónico</Label>
+              <Label htmlFor="email" className="text-sm font-medium">Correo Electrónico <span className="text-destructive">*</span></Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -202,19 +201,20 @@ export default function Register() {
                   onChange={(e) => handleChange('email', e.target.value)}
                   disabled={isSubmitting}
                   autoComplete="email"
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.email ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="email" />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="department" className="text-sm font-medium">Departamento</Label>
+              <Label htmlFor="department" className="text-sm font-medium">Departamento <span className="text-destructive">*</span></Label>
               <Select
                 value={formData.department}
                 onValueChange={(value) => handleChange('department', value)}
                 disabled={isSubmitting}
               >
-                <SelectTrigger className="h-11">
+                <SelectTrigger className={`h-11 ${errors.department ? 'border-destructive' : ''}`}>
                   <Building2 className="h-4 w-4 text-muted-foreground mr-2" />
                   <SelectValue placeholder="Selecciona un departamento" />
                 </SelectTrigger>
@@ -230,6 +230,7 @@ export default function Register() {
                   )}
                 </SelectContent>
               </Select>
+              <Err field="department" />
             </div>
 
             <div className="space-y-1.5">
@@ -240,12 +241,14 @@ export default function Register() {
                   id="dni"
                   type="text"
                   placeholder="12345678"
+                  maxLength={15}
                   value={formData.dni}
                   onChange={(e) => handleChange('dni', e.target.value)}
                   disabled={isSubmitting}
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.dni ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="dni" />
             </div>
 
             <div className="space-y-1.5">
@@ -256,12 +259,14 @@ export default function Register() {
                   id="phone"
                   type="tel"
                   placeholder="0412-1234567"
+                  maxLength={15}
                   value={formData.phone}
                   onChange={(e) => handleChange('phone', e.target.value)}
                   disabled={isSubmitting}
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.phone ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="phone" />
             </div>
 
             <div className="space-y-1.5">
@@ -275,9 +280,10 @@ export default function Register() {
                   value={formData.location}
                   onChange={(e) => handleChange('location', e.target.value)}
                   disabled={isSubmitting}
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.location ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="location" />
             </div>
 
             <div className="space-y-1.5">
@@ -291,13 +297,14 @@ export default function Register() {
                   value={formData.specialty}
                   onChange={(e) => handleChange('specialty', e.target.value)}
                   disabled={isSubmitting}
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.specialty ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="specialty" />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Tipo de Usuario</Label>
+              <Label className="text-sm font-medium">Tipo de Usuario <span className="text-destructive">*</span></Label>
               <div className="grid grid-cols-2 gap-2">
                 {USER_ROLES.map((role) => {
                   const RoleIcon = role.icon;
@@ -321,7 +328,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm font-medium">Contraseña</Label>
+              <Label htmlFor="password" className="text-sm font-medium">Contraseña <span className="text-destructive">*</span></Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -332,7 +339,7 @@ export default function Register() {
                   onChange={(e) => handleChange('password', e.target.value)}
                   disabled={isSubmitting}
                   autoComplete="new-password"
-                  className="h-11 pl-10 pr-10"
+                  className={`h-11 pl-10 pr-10 ${errors.password ? 'border-destructive' : ''}`}
                 />
                 <button
                   type="button"
@@ -343,10 +350,11 @@ export default function Register() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              <Err field="password" />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar Contraseña</Label>
+              <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar Contraseña <span className="text-destructive">*</span></Label>
               <div className="relative">
                 <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -357,9 +365,10 @@ export default function Register() {
                   onChange={(e) => handleChange('confirmPassword', e.target.value)}
                   disabled={isSubmitting}
                   autoComplete="new-password"
-                  className="h-11 pl-10"
+                  className={`h-11 pl-10 ${errors.confirmPassword ? 'border-destructive' : ''}`}
                 />
               </div>
+              <Err field="confirmPassword" />
             </div>
 
             <Button type="submit" className="w-full h-11 mt-1" disabled={isSubmitting}>

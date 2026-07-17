@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { useSocket } from '@/hooks/useSocket';
+import { usePolling } from '@/hooks/usePolling';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 
@@ -117,8 +117,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const addNotificationRef = useRef(addNotification);
   addNotificationRef.current = addNotification;
 
-  // Connect to Socket.io for real-time notifications
-  const handleSocketNotification = useCallback((data: {
+  // Poll for new notifications
+  const handlePollingNotification = useCallback((data: {
     id: string;
     title: string;
     message: string;
@@ -127,7 +127,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     createdAt: string;
   }) => {
     const notificationType = mapBackendType(data.type);
-    // Use ref to avoid stale closure issues
     addNotificationRef.current({
       title: data.title,
       message: data.message,
@@ -137,11 +136,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  useSocket({
-    token: user ? localStorage.getItem('token') : null,
+  usePolling({
     userId: user?.id,
-    role: user?.role,
-    onNotification: handleSocketNotification,
+    onNewNotification: handlePollingNotification,
   });
 
   const unreadCount = notifications.filter(n => !n.read).length;
