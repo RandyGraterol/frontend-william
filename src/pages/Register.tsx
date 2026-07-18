@@ -61,9 +61,9 @@ export default function Register() {
   const handleChange = (field: string, value: string) => {
     setErrors(prev => ({ ...prev, [field]: '' }));
     if (field === 'dni') {
-      setFormData(prev => ({ ...prev, dni: value.replace(/[^0-9]/g, '').slice(0, 15) }));
+      setFormData(prev => ({ ...prev, dni: value.replace(/[^0-9]/g, '').slice(0, 8) }));
     } else if (field === 'phone') {
-      setFormData(prev => ({ ...prev, phone: value.replace(/[^0-9+\- ]/g, '').slice(0, 15) }));
+      setFormData(prev => ({ ...prev, phone: value.replace(/[^0-9+\- ]/g, '').slice(0, 11) }));
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
     }
@@ -241,7 +241,7 @@ export default function Register() {
                   id="dni"
                   type="text"
                   placeholder="12345678"
-                  maxLength={15}
+                  maxLength={8}
                   value={formData.dni}
                   onChange={(e) => handleChange('dni', e.target.value)}
                   disabled={isSubmitting}
@@ -259,7 +259,7 @@ export default function Register() {
                   id="phone"
                   type="tel"
                   placeholder="0412-1234567"
-                  maxLength={15}
+                  maxLength={11}
                   value={formData.phone}
                   onChange={(e) => handleChange('phone', e.target.value)}
                   disabled={isSubmitting}
