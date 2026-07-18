@@ -173,7 +173,7 @@ export default function Register() {
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-sm font-medium">Nombre Completo <span className="text-destructive">*</span></Label>
+              <Label htmlFor="name" className="text-sm font-medium">Nombre Completo</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -190,7 +190,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm font-medium">Correo Electrónico <span className="text-destructive">*</span></Label>
+              <Label htmlFor="email" className="text-sm font-medium">Correo Electrónico</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -208,7 +208,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="department" className="text-sm font-medium">Departamento <span className="text-destructive">*</span></Label>
+              <Label htmlFor="department" className="text-sm font-medium">Departamento</Label>
               <Select
                 value={formData.department}
                 onValueChange={(value) => handleChange('department', value)}
@@ -234,7 +234,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="dni" className="text-sm font-medium">Cédula / DNI <span className="text-destructive">*</span></Label>
+              <Label htmlFor="dni" className="text-sm font-medium">Cédula / DNI</Label>
               <div className="relative">
                 <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -252,7 +252,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="phone" className="text-sm font-medium">Teléfono <span className="text-destructive">*</span></Label>
+              <Label htmlFor="phone" className="text-sm font-medium">Teléfono</Label>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -270,7 +270,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="location" className="text-sm font-medium">Ubicación / Dirección <span className="text-destructive">*</span></Label>
+              <Label htmlFor="location" className="text-sm font-medium">Ubicación / Dirección</Label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -287,7 +287,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="specialty" className="text-sm font-medium">Especialidad <span className="text-destructive">*</span></Label>
+              <Label htmlFor="specialty" className="text-sm font-medium">Especialidad</Label>
               <div className="relative">
                 <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -304,7 +304,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Tipo de Usuario <span className="text-destructive">*</span></Label>
+              <Label className="text-sm font-medium">Tipo de Usuario</Label>
               <div className="grid grid-cols-2 gap-2">
                 {USER_ROLES.map((role) => {
                   const RoleIcon = role.icon;
@@ -328,7 +328,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm font-medium">Contraseña <span className="text-destructive">*</span></Label>
+              <Label htmlFor="password" className="text-sm font-medium">Contraseña</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -354,7 +354,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar Contraseña <span className="text-destructive">*</span></Label>
+              <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar Contraseña</Label>
               <div className="relative">
                 <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
