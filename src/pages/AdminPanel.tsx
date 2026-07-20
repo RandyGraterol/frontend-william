@@ -74,6 +74,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
+import { generateAdminReport } from '@/lib/pdfGenerator';
 
 // ============ MOCK DATA FALLBACKS ============
 
@@ -1010,6 +1011,18 @@ const AdminPanel = () => {
     );
   }
 
+  const handleExportReporteCompleto = () => {
+    const fullStats = {
+      ...stats,
+      ...(assignmentStatsData || mockAssignmentStats),
+    };
+    generateAdminReport(fullStats);
+    toast({
+      title: 'Reporte generado',
+      description: 'El reporte completo en PDF se ha descargado correctamente.',
+    });
+  };
+
   // ============ JSX ============
 
   const displayAssignmentStats = assignmentStatsData || mockAssignmentStats;
@@ -1152,7 +1165,7 @@ const AdminPanel = () => {
                       <Download className="h-6 w-6" />
                       <span>Exportar Evaluaciones (CSV)</span>
                     </Button>
-                    <Button variant="outline" className="h-auto py-4 flex flex-col items-center gap-2">
+                    <Button variant="outline" className="h-auto py-4 flex flex-col items-center gap-2" onClick={handleExportReporteCompleto}>
                       <Download className="h-6 w-6" />
                       <span>Reporte Completo (PDF)</span>
                     </Button>

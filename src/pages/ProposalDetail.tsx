@@ -60,6 +60,7 @@ import {
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import { generateProposalPDF } from '@/lib/pdfGenerator';
 
 // ============ HELPER FUNCTIONS ============
 
@@ -334,10 +335,15 @@ export default function ProposalDetail() {
   const handleExportPDF = () => {
     toast({
       title: 'Generando PDF',
-      description: 'Preparando la vista de impresión...',
+      description: 'Generando documento PDF con formato de texto...',
     });
-    // Use browser's print functionality which allows "Save as PDF"
-    setTimeout(() => window.print(), 300);
+    setTimeout(() => {
+      generateProposalPDF(proposal);
+      toast({
+        title: 'PDF generado',
+        description: 'El documento PDF se ha descargado correctamente.',
+      });
+    }, 300);
   };
 
   const getTotalScore = (evaluation: Evaluation) => {
